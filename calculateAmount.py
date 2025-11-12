@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from supabase import create_client
+from datetime import datetime
+from dateutil import parser
 
 router = APIRouter()
 
@@ -13,6 +15,7 @@ async def calculate_amount(request: Request):
     try:
         body = await request.json()
         print("Received JSON body:", body)
+        eventType = body.get("eventType", "")
         deliverables = body.get("deliverables", [])
         discount = body.get("discount", 0)
         startTime = body.get("startTime", "")
@@ -24,15 +27,64 @@ async def calculate_amount(request: Request):
         # Fetch rates from Supabase
         responseForDaysEvent = supabase.table("FactorForAmountCalculationDay").select("deliverable, amount").in_("deliverable", deliverables).execute()
         response = supabase.table("FactorForAmountCalculation").select("deliverable, amount").in_("deliverable", deliverables).execute()
+        print("Deliverables response:", eventType)
+        client_name = body.get("clientName", "")
 
+        # Insert a new worksheet row and return the serial number
+    #    worksheet_insert = supabase.table("Worksheet").insert({
+    #        "EVENT_NAME": eventType,
+    #        "EVENT_TYPE": eventType,
+    #        "LOCATION": body.get("location", ""),
+    #        "CLIENT_NAME": client_name,
+    #        "START_DATE": startTime,
+    #        "END_DATE": endTime,
+    #        "JSON": body,
+    #        "QUOTATION": 0,
+    #        "DELIVERABLES": deliverables,
+    #        "CLIENT_CONTACT": body.get("clientContact", ""),
+    #        "CLIENT_EMAIL": body.get("clientEmail", "")
+    #    }).select("id").execute()
+
+    #    if worksheet_insert.data is None or len(worksheet_insert.data) == 0:
+    #        raise HTTPException(status_code=500, detail="Failed to create worksheet record")
+
+    #    serial_number = worksheet_insert.data[0].get("id")
+    #    print("Created worksheet serial:", serial_number)
+        eventNumber = supabase.table("FactorForEventCode").select("eventType, eventCode").eq("eventType", eventType).execute()
+
+        print("Event number response:", eventNumber)
         print("Supabase response (per event):", response)
         print("Supabase response (per day):", responseForDaysEvent)
 
         # Check if data is present
         if response.data is None and responseForDaysEvent.data is None:
             raise HTTPException(status_code=500, detail="Error fetching rates from Supabase.")
-
+        # create the event code
+        eventCode = "MSS"
+        startTimeYear = "25"
+        startTimeMonth = "01"
+        if startTime:
+            print(startTime)
+            #try:
+                #start_dt = parser.parse(startTime)  # handles many formats
+                #print(start_dt)
+                # last two digits of year, zero-padded
+                #startTimeYear = f"{start_dt.year % 100:02d}"
+                # month as two-digit string
+                #startTimeMonth = f"{start_dt.month:02d}"
+            #except Exception as e:
+            #    raise HTTPException(status_code=400, detail=f"Date parsing error: {str(e)}")
+        if (isinstance(startTimeMonth, int) and startTimeMonth < 10):
+            startTimeMonth = "0" + str(startTimeMonth)
+        else:
+            startTimeMonth = str(startTimeMonth)
+        event_code_suffix = ""
+        if eventNumber.data and len(eventNumber.data) > 0:
+            event_code_suffix = str(eventNumber.data[0].get('eventCode', ''))
+        eventCode = "MSS" + str(startTimeYear) + str(startTimeMonth) + event_code_suffix
+        print("Generated event code:", eventCode)
         # Calculate total amount
+                # Calculate total amount
         totalPerDay = sum(float(item["amount"]) for item in (responseForDaysEvent.data or []))
         total = sum(float(item["amount"]) for item in (response.data or []))
 
@@ -61,7 +113,7 @@ async def calculate_amount(request: Request):
 
         print("Final calculated amount:", total)
 
-        return {"amount": total}
+        return {"amount": total, "event_code": eventCode}
     except HTTPException as http_exc:
         # Re-raise HTTPExceptions to be handled by FastAPI
         raise http_exc
